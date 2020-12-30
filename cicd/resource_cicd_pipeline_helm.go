@@ -10,7 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"encoding/json"
-	"github.com/AtlantPlatform/infra/terraform-provider-cicd/internal/helpers"
+	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 )
 

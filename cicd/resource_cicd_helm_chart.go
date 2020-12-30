@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/AtlantPlatform/infra/terraform-provider-cicd/internal/helmchart"
+	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helmchart"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	log "github.com/sirupsen/logrus"
 )

@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/AtlantPlatform/infra/terraform-provider-cicd/cicd"
+	"github.com/AtlantPlatform/terraform-provider-cicd/cicd"
 	"github.com/hashicorp/terraform-plugin-sdk/plugin"
 )
 

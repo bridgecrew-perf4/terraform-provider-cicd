@@ -9,7 +9,7 @@ import (
 	"bytes"
 
 	"fmt"
-	"github.com/AtlantPlatform/infra/terraform-provider-cicd/internal/helpers"
+	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
 	"golang.org/x/mod/sumdb/dirhash"
 	"gopkg.in/yaml.v2"
 	"io"
