@@ -1,0 +1,3 @@
+bin/
+.terraform/
+provider_test.go
