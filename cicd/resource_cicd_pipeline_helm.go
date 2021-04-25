@@ -1,4 +1,4 @@
-// Copyright 2017-2020 Tensigma Ltd. All rights reserved.
+// Copyright 2017-2021 Tensigma Ltd. All rights reserved.
 // Use of this source code is governed by Microsoft Reference Source
 // License (MS-RSL) that can be found in the LICENSE file.
 
@@ -6,10 +6,11 @@ package cicd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"encoding/json"
+
 	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 )
@@ -72,7 +73,7 @@ func resourcePipelineHelm() *schema.Resource {
 			// 	Optional: true,
 			// 	Description: "TODO: Whether to install HELM chart if it is not present",
 			// },
-			// TODO: approvals
+			// TODO: approvals: who is allowed to approve
 			"secret": {
 				Type:        schema.TypeString,
 				Computed:    true,
@@ -83,17 +84,17 @@ func resourcePipelineHelm() *schema.Resource {
 }
 
 func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
-	api_root := meta.(*ProviderConfig).ApiRoot;
+	apiRoot := meta.(*providerConfig).APIRoot
 	payload := PipelineHelmCreate{
-		ID: helpers.NewRandSeq(32),
-		Origin: d.Get("origin").(string),
-		Branches: make([]string, 0),
-		RegistryURL: d.Get("registry_url").(string),
+		ID:               helpers.NewRandSeq(32),
+		Origin:           d.Get("origin").(string),
+		Branches:         make([]string, 0),
+		RegistryURL:      d.Get("registry_url").(string),
 		RegistryProvider: d.Get("registry_provider").(string),
 		// helm-specific
-		Kind: PipelineKindHelm,
-		Archive: d.Get("archive").(string),
-		Release: d.Get("release").(string),
+		Kind:      PipelineKindHelm,
+		Archive:   d.Get("archive").(string),
+		Release:   d.Get("release").(string),
 		Namespace: d.Get("namespace").(string),
 	}
 	if d.Get("branches") != nil {
@@ -103,7 +104,7 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 		}
 	}
 	body, _ := json.Marshal(&payload)
-	resp, err := http.Post(api_root + "/api/init", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post(apiRoot+"/api/pipelines/activate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -112,9 +113,9 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("API Init responded with status %v", resp.StatusCode)
 	}
 
-	var out PipelineInitResponse
+	var out PipelineActivateResponse
 	buf, err := ioutil.ReadAll(resp.Body)
-	if  err != nil {
+	if err != nil {
 		return err
 	}
 	if err := json.Unmarshal(buf, &out); err != nil {
@@ -129,16 +130,6 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 }
 
 func onPipelineHelmRead(d *schema.ResourceData, meta interface{}) error {
-	api_root := meta.(*ProviderConfig).ApiRoot;
-	ID := d.Get("id").(string)
-	resp, err := http.Get(api_root + "/api/pipeline/" + ID)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("API Pipeline responded with status %v", resp.StatusCode)
-	}
 	return nil
 }
 
@@ -147,13 +138,13 @@ func onPipelineHelmUpdate(d *schema.ResourceData, meta interface{}) error {
 }
 
 func onPipelineHelmDelete(d *schema.ResourceData, meta interface{}) error {
-	api_root := meta.(*ProviderConfig).ApiRoot;
+	apiRoot := meta.(*providerConfig).APIRoot
 	ID := d.Get("id").(string)
 	Secret := d.Get("secret").(string)
-	
-	payload := PipelineRef{ ID: ID, Secret: Secret };
+
+	payload := PipelineRef{ID: ID, Secret: Secret}
 	body, _ := json.Marshal(&payload)
-	resp, err := http.Post(api_root + "/api/destroy", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post(apiRoot+"/api/pipelines/deactivate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}

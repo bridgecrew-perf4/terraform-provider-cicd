@@ -1,4 +1,4 @@
-// Copyright 2017-2020 Tensigma Ltd. All rights reserved.
+// Copyright 2017-2021 Tensigma Ltd. All rights reserved.
 // Use of this source code is governed by Microsoft Reference Source
 // License (MS-RSL) that can be found in the LICENSE file.
 
@@ -9,14 +9,15 @@ import (
 	"bytes"
 
 	"fmt"
-	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
-	"golang.org/x/mod/sumdb/dirhash"
-	"gopkg.in/yaml.v2"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
+	"golang.org/x/mod/sumdb/dirhash"
+	"gopkg.in/yaml.v2"
 )
 
 type Declaration struct {
@@ -32,9 +33,9 @@ type Builder struct {
 	Hash string
 	Name string
 
-	source string
-	yamlChart  string
-	yamlValues string
+	source      string
+	yamlChart   string
+	yamlValues  string
 	txtOverride string
 }
 
@@ -55,14 +56,14 @@ func New(source string, args map[string]interface{}) (*Builder, error) {
 	if err := yaml.Unmarshal(yamlChartFile, &decl); err != nil {
 		return nil, fmt.Errorf("%s/Chart.yaml parse failure %v", source, err)
 	}
-	
+
 	yamlValuesFile, err := ioutil.ReadFile(fmt.Sprintf("%s/values.yaml", source))
 	if err != nil {
 		return nil, fmt.Errorf("%s/values.yaml read failure %v", source, err)
 	}
 	var t interface{}
 	if err := yaml.Unmarshal(yamlValuesFile, &t); err != nil {
-	 	return nil, fmt.Errorf("%s/values.yaml parse failure %v", source, err)
+		return nil, fmt.Errorf("%s/values.yaml parse failure %v", source, err)
 	}
 	arrOverride := make([]string, 0)
 	if args != nil {
@@ -76,12 +77,12 @@ func New(source string, args map[string]interface{}) (*Builder, error) {
 	}
 	id := hash[0:12]
 	return &Builder{
-		Name: decl.Name,
-		ID: id,
-		Hash: hash,
-		source: source,
-		yamlChart: string(yamlChartFile),
-		yamlValues: string(yamlValuesFile),
+		Name:        decl.Name,
+		ID:          id,
+		Hash:        hash,
+		source:      source,
+		yamlChart:   string(yamlChartFile),
+		yamlValues:  string(yamlValuesFile),
 		txtOverride: strings.Join(arrOverride, " "),
 	}, nil
 }
@@ -118,7 +119,7 @@ func (s *Builder) ZIP() (io.ReadSeeker, error) {
 		{"Chart.yaml", s.yamlChart},
 	}
 	// read files under templates/ folder
-	err := filepath.Walk(s.source + "/templates", func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(s.source+"/templates", func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
 		}
@@ -127,16 +128,16 @@ func (s *Builder) ZIP() (io.ReadSeeker, error) {
 		if err != nil {
 			return fmt.Errorf("%s/%s read failure %v", s.source, path, err)
 		}
-        files = append(files, zipFile{ 
-			Name: "templates/" + info.Name(), 
+		files = append(files, zipFile{
+			Name: "templates/" + info.Name(),
 			Body: string(yamlFile),
 		})
-        return nil
-    })
-    if err != nil {
-        panic(err)
-    }
-   
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	for _, file := range files {
 		f, err := w.Create(file.Name)
 		if err != nil {

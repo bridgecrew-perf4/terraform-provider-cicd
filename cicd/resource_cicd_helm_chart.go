@@ -1,4 +1,4 @@
-// Copyright 2017-2020 Tensigma Ltd. All rights reserved.
+// Copyright 2017-2021 Tensigma Ltd. All rights reserved.
 // Use of this source code is governed by Microsoft Reference Source
 // License (MS-RSL) that can be found in the LICENSE file.
 
@@ -64,10 +64,11 @@ func resourceHelmChart() *schema.Resource {
 	}
 }
 
+// HashMetaHeader added to s3 as meta-data
 const HashMetaHeader = "chart-hash"
 
 func onHelmChartCreate(d *schema.ResourceData, meta interface{}) error {
-	cli := s3.New(meta.(*ProviderConfig).Session)
+	cli := s3.New(meta.(*providerConfig).Session)
 
 	source := d.Get("source").(string)
 	args := d.Get("args").(map[string]interface{})
@@ -92,7 +93,7 @@ func onHelmChartCreate(d *schema.ResourceData, meta interface{}) error {
 	}); errUpload != nil {
 		return errUpload
 	}
-	
+
 	d.Set("hash", chart.Hash)
 	d.Set("name", chart.Name)
 	d.Set("archive", chart.GetZipName())
@@ -101,7 +102,7 @@ func onHelmChartCreate(d *schema.ResourceData, meta interface{}) error {
 }
 
 func onHelmChartRead(d *schema.ResourceData, meta interface{}) error {
-	cli := s3.New(meta.(*ProviderConfig).Session)
+	cli := s3.New(meta.(*providerConfig).Session)
 	if d.Get("id") != nil && d.Get("name") != nil {
 		chart := &helmchart.Builder{
 			ID:   d.Get("id").(string),
@@ -111,7 +112,7 @@ func onHelmChartRead(d *schema.ResourceData, meta interface{}) error {
 		sourceObject, errRead := cli.HeadObject(&s3.HeadObjectInput{
 			Bucket: aws.String(d.Get("aws_bucket").(string)),
 			Key:    aws.String(chart.GetZipName()),
-		}); 
+		})
 		if errRead != nil {
 			// no error, but nothing is present, need regeneration
 			d.Set("archive", "")
@@ -129,10 +130,10 @@ func onHelmChartRead(d *schema.ResourceData, meta interface{}) error {
 }
 
 // in theory, we should never get to update
-// on chart modification, as ID should be changed, 
+// on chart modification, as ID should be changed,
 // old resource is a subject of deletion
 func onHelmChartUpdate(d *schema.ResourceData, meta interface{}) error {
-	cli := s3.New(meta.(*ProviderConfig).Session)
+	cli := s3.New(meta.(*providerConfig).Session)
 
 	source := d.Get("source").(string)
 	args := d.Get("args").(map[string]interface{})
@@ -157,7 +158,7 @@ func onHelmChartUpdate(d *schema.ResourceData, meta interface{}) error {
 	}); errUpload != nil {
 		return errUpload
 	}
-	
+
 	d.Set("hash", chart.Hash)
 	d.Set("name", chart.Name)
 	d.Set("archive", chart.GetZipName())
@@ -168,7 +169,7 @@ func onHelmChartDelete(d *schema.ResourceData, meta interface{}) error {
 	// remove file from AWS s3 bucket
 	if d.Get("id") != nil && d.Get("name") != nil {
 		chart := &helmchart.Builder{ID: d.Get("id").(string), Name: d.Get("name").(string)}
-		session := meta.(*ProviderConfig).Session
+		session := meta.(*providerConfig).Session
 		if _, errDelete := s3.New(session).DeleteObject(&s3.DeleteObjectInput{
 			Bucket: aws.String(d.Get("aws_bucket").(string)),
 			Key:    aws.String(chart.GetZipName()),

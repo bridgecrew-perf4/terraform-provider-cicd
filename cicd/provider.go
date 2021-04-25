@@ -1,4 +1,4 @@
-// Copyright 2017-2020 Tensigma Ltd. All rights reserved.
+// Copyright 2017-2021 Tensigma Ltd. All rights reserved.
 // Use of this source code is governed by Microsoft Reference Source
 // License (MS-RSL) that can be found in the LICENSE file.
 
@@ -89,8 +89,8 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 	if _, errCred := sess.Config.Credentials.Get(); errCred != nil {
 		return nil, fmt.Errorf("Error checking AWS profile: %s", errCred.Error())
 	}
-	return &ProviderConfig{
-		ApiRoot:    root,
+	return &providerConfig{
+		APIRoot:    root,
 		Kubeconfig: kubeconfig,
 		AwsProfile: profile,
 		AwsRegion:  region,
