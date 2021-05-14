@@ -11,6 +11,9 @@ build:
 	mkdir -p ./bin
 	go build -o ./bin/terraform-provider-cicd .
 
+upload-local: build
+	docker cp bin/terraform-provider-cicd tf-shell-atlantrentals-dev2:/root/.terraform.d/plugins/linux_amd64/terraform-provider-cicd_v0.0.2
+
 install:
 	mkdir -p ~/.terraform.d/plugins
 	cp -f ./bin/terraform-provider-cicd ~/.terraform.d/plugins/terraform-provider-cicd

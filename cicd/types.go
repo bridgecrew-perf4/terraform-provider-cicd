@@ -5,7 +5,10 @@
 package cicd
 
 import (
+	"fmt"
+
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 )
 
 // providerConfig embeds internal terraform provider configuration
@@ -45,8 +48,10 @@ type PipelineActivateResponse struct {
 // PipelineHelmCreate is a structure for HELM pipeline creation updat
 type PipelineHelmCreate struct {
 	ID string `json:"id"`
+	// Secret (required for updates)
+	Secret string `json:"secret"`
 	// Kind of the pipeline: Helm
-	Kind PipelineKind `json:"kind"`
+	Type PipelineKind `json:"type"`
 	// GIT origin to be checked
 	Origin string `json:"origin,omitempty"`
 	// GIT branches to be checked
@@ -61,4 +66,22 @@ type PipelineHelmCreate struct {
 	Release string `json:"release,omitempty"`
 	// Chart release namespace. If not specified, 'default' will be used
 	Namespace string `json:"namespace,omitempty"`
+	// Number of approves required for the pipeline
+	ApprovalsRequired int `json:"approvesrequired"`
+	// List of approvers who can approve pipeline
+	Approvers []string `json:"approvers"`
+}
+
+func SafeString(d *schema.ResourceData, field string) string {
+	if d == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", d.Get(field))
+}
+
+func SafeNum(d *schema.ResourceData, field string) int {
+	if d == nil {
+		return 0
+	}
+	return d.Get(field).(int)
 }

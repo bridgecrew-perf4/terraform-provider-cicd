@@ -13,6 +13,7 @@ import (
 
 	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	log "github.com/sirupsen/logrus"
 )
 
 func resourcePipelineHelm() *schema.Resource {
@@ -36,7 +37,7 @@ func resourcePipelineHelm() *schema.Resource {
 			},
 			"release": {
 				Type:        schema.TypeString,
-				Optional:    true,
+				Required:    true,
 				Description: "Chart release name. If not specified, value from Chart.yaml will be used",
 			},
 			"namespace": {
@@ -67,13 +68,18 @@ func resourcePipelineHelm() *schema.Resource {
 				Optional:    true,
 				Description: "Docker provider (aws, ibm, gitlab). AWS by default.",
 			},
-			// TODO: install on start
-			// "install": {
-			// 	Type:     schema.TypeBool,
-			// 	Optional: true,
-			// 	Description: "TODO: Whether to install HELM chart if it is not present",
-			// },
-			// TODO: approvals: who is allowed to approve
+			"approvals_required": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Default:     0,
+				Description: "Number of approvals required for the pipeline to be finished",
+			},
+			"approvers": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "",
+				Description: "Comma-separated list of approvers",
+			},
 			"secret": {
 				Type:        schema.TypeString,
 				Computed:    true,
@@ -87,15 +93,22 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 	apiRoot := meta.(*providerConfig).APIRoot
 	payload := PipelineHelmCreate{
 		ID:               helpers.NewRandSeq(32),
-		Origin:           d.Get("origin").(string),
+		Origin:           SafeString(d, "origin"),
 		Branches:         make([]string, 0),
-		RegistryURL:      d.Get("registry_url").(string),
-		RegistryProvider: d.Get("registry_provider").(string),
+		RegistryURL:      SafeString(d, "registry_url"),
+		RegistryProvider: SafeString(d, "registry_provider"),
 		// helm-specific
-		Kind:      PipelineKindHelm,
-		Archive:   d.Get("archive").(string),
-		Release:   d.Get("release").(string),
-		Namespace: d.Get("namespace").(string),
+		Type:              PipelineKindHelm,
+		Archive:           SafeString(d, "archive"),
+		Release:           SafeString(d, "release"),
+		Namespace:         SafeString(d, "namespace"),
+		ApprovalsRequired: SafeNum(d, "approvals_required"),
+	}
+	if d.Get("approvers") != nil {
+		fmt.Printf("approvers=%v\n", d.Get("approvers"))
+		for _, v := range d.Get("approvers").([]interface{}) {
+			payload.Approvers = append(payload.Approvers, v.(string))
+		}
 	}
 	if d.Get("branches") != nil {
 		fmt.Printf("branches=%v\n", d.Get("branches"))
@@ -106,51 +119,122 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 	body, _ := json.Marshal(&payload)
 	resp, err := http.Post(apiRoot+"/api/pipelines/activate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("activation error: %v", err.Error())
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("API Init responded with status %v", resp.StatusCode)
-	}
 
 	var out PipelineActivateResponse
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("API Init responded with status %v (%v)",
+			resp.StatusCode, string(buf))
+	}
+
+	if err := json.Unmarshal(buf, &out); err != nil {
+		return err
+	}
+	if payload.ID != out.ID {
+		return fmt.Errorf("IDs don't match, found %s, expected %s (%v)",
+			out.ID, payload.ID, string(buf))
+	}
+	d.SetId(out.ID)
+	// secret comes back from pipelines server
+	d.Set("secret", out.Secret)
+	return nil
+}
+
+func onPipelineHelmRead(d *schema.ResourceData, meta interface{}) error {
+	// nothing here so far. We fully trust local store
+	return nil
+}
+
+func onPipelineHelmUpdate(d *schema.ResourceData, meta interface{}) error {
+	apiRoot := meta.(*providerConfig).APIRoot
+	if len(d.Id()) == 0 {
+		return nil
+	}
+	payload := PipelineHelmCreate{
+		ID:               d.Id(),
+		Secret:           SafeString(d, "secret"),
+		Origin:           SafeString(d, "origin"),
+		Branches:         make([]string, 0),
+		RegistryURL:      SafeString(d, "registry_url"),
+		RegistryProvider: SafeString(d, "registry_provider"),
+		// helm-specific
+		Type:              PipelineKindHelm,
+		Archive:           SafeString(d, "archive"),
+		Release:           SafeString(d, "release"),
+		Namespace:         SafeString(d, "namespace"),
+		ApprovalsRequired: SafeNum(d, "approvals_required"),
+	}
+	if d.Get("approvers") != nil {
+		fmt.Printf("approvers=%v\n", d.Get("approvers"))
+		for _, v := range d.Get("approvers").([]interface{}) {
+			payload.Approvers = append(payload.Approvers, v.(string))
+		}
+	}
+	if d.Get("branches") != nil {
+		fmt.Printf("branches=%v\n", d.Get("branches"))
+		for _, v := range d.Get("branches").([]interface{}) {
+			payload.Branches = append(payload.Branches, v.(string))
+		}
+	}
+	body, _ := json.Marshal(&payload)
+	resp, err := http.Post(apiRoot+"/api/pipelines/activate", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("activation error: %v", err.Error())
+	}
+	defer resp.Body.Close()
+	var out PipelineActivateResponse
+	buf, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("API Init responded with status %v (%v)",
+			resp.StatusCode, string(body))
+	}
+
 	if err := json.Unmarshal(buf, &out); err != nil {
 		return err
 	}
 	if payload.ID != out.ID {
 		return fmt.Errorf("IDs don't match, found %s, expected %s", out.ID, payload.ID)
 	}
-	d.SetId(out.ID)
-	d.Set("secret", out.Secret)
 	return nil
 }
 
-func onPipelineHelmRead(d *schema.ResourceData, meta interface{}) error {
-	return nil
-}
-
-func onPipelineHelmUpdate(d *schema.ResourceData, meta interface{}) error {
-	return nil
-}
-
+// all errors of deactivation are silenced
 func onPipelineHelmDelete(d *schema.ResourceData, meta interface{}) error {
 	apiRoot := meta.(*providerConfig).APIRoot
-	ID := d.Get("id").(string)
-	Secret := d.Get("secret").(string)
+	if len(d.Id()) == 0 {
+		return nil
+	}
+	Secret := SafeString(d, "secret")
+	payload := PipelineRef{ID: d.Id(), Secret: Secret}
 
-	payload := PipelineRef{ID: ID, Secret: Secret}
+	fmt.Println("onPipelineHelmDelete: ", payload)
 	body, _ := json.Marshal(&payload)
 	resp, err := http.Post(apiRoot+"/api/pipelines/deactivate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		log.WithError(err).WithField("payload", payload).Warn("deactivation error (silenced)")
+		return nil
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("API Pipeline responded with status %v", resp.StatusCode)
+	buf, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
 	}
+	if resp.StatusCode >= 300 {
+		log.WithError(err).
+			WithField("payload", payload).
+			WithField("body", string(buf)).
+			WithField("status", resp.StatusCode).Warn("deactivation bad status code (silenced)")
+		return nil
+	}
+	fmt.Println("onPipelineHelmDelete: done")
 	return nil
 }
