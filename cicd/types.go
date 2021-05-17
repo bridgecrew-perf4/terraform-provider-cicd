@@ -72,6 +72,19 @@ type PipelineHelmCreate struct {
 	Approvers []string `json:"approvers"`
 }
 
+func SafeStringList(d *schema.ResourceData, field string) []string {
+	res := []string{}
+	if d == nil {
+		return res
+	}
+	if d.Get(field) != nil {
+		for _, v := range d.Get(field).([]interface{}) {
+			res = append(res, v.(string))
+		}
+	}
+	return res
+}
+
 func SafeString(d *schema.ResourceData, field string) string {
 	if d == nil {
 		return ""

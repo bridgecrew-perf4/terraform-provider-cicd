@@ -5,12 +5,13 @@
 package cicd
 
 import (
+	"log"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helmchart"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	log "github.com/sirupsen/logrus"
 )
 
 func resourceHelmChart() *schema.Resource {
@@ -45,6 +46,14 @@ func resourceHelmChart() *schema.Resource {
 					Type: schema.TypeString,
 				},
 			},
+			"allowed": {
+				Type:     schema.TypeList,
+				Optional: true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+				Description: "list of allowed parameters to be overwritten",
+			},
 			"name": {
 				Type:        schema.TypeString,
 				Computed:    true,
@@ -68,11 +77,12 @@ func resourceHelmChart() *schema.Resource {
 const HashMetaHeader = "chart-hash"
 
 func onHelmChartCreate(d *schema.ResourceData, meta interface{}) error {
+	log.Printf("onHelmChartCreate: start %v", d)
 	cli := s3.New(meta.(*providerConfig).Session)
 
 	source := d.Get("source").(string)
 	args := d.Get("args").(map[string]interface{})
-	chart, err := helmchart.New(source, args)
+	chart, err := helmchart.New(source, args, SafeStringList(d, "allowed"))
 	if err != nil {
 		return err
 	}
@@ -84,7 +94,7 @@ func onHelmChartCreate(d *schema.ResourceData, meta interface{}) error {
 	}
 	if _, errUpload := cli.PutObject(&s3.PutObjectInput{
 		Body:        reader,
-		Bucket:      aws.String(d.Get("aws_bucket").(string)),
+		Bucket:      aws.String(SafeString(d, "aws_bucket")),
 		ContentType: aws.String("application/zip"),
 		Key:         aws.String(chart.GetZipName()),
 		Metadata: map[string]*string{
@@ -102,29 +112,34 @@ func onHelmChartCreate(d *schema.ResourceData, meta interface{}) error {
 }
 
 func onHelmChartRead(d *schema.ResourceData, meta interface{}) error {
-	cli := s3.New(meta.(*providerConfig).Session)
-	if d.Get("id") != nil && d.Get("name") != nil {
-		chart := &helmchart.Builder{
-			ID:   d.Get("id").(string),
-			Name: d.Get("name").(string),
+	// cli := s3.New(meta.(*providerConfig).Session)
+	log.Printf("onHelmChartRead: start %v", d)
+	if d.Get("name") != nil {
+		// 1. reading local chart information
+		source := d.Get("source").(string)
+		args := d.Get("args").(map[string]interface{})
+		localChart, err := helmchart.New(source, args, SafeStringList(d, "allowed"))
+		if err != nil {
+			return err
 		}
-		// check s3 location
-		sourceObject, errRead := cli.HeadObject(&s3.HeadObjectInput{
-			Bucket: aws.String(d.Get("aws_bucket").(string)),
-			Key:    aws.String(chart.GetZipName()),
-		})
-		if errRead != nil {
-			// no error, but nothing is present, need regeneration
-			d.Set("archive", "")
-			d.Set("hash", "")
-			return nil
-		}
-		if sourceObject.Metadata != nil {
-			d.Set("archive", chart.GetZipName())
-			if hash, ok := sourceObject.Metadata[HashMetaHeader]; ok {
-				d.Set("hash", hash)
-			}
-		}
+		d.Set("hash", localChart.Hash)
+		d.Set("archive", localChart.GetZipName())
+		log.Printf("onHelmChartRead: checksum: %v %v", localChart.Hash, d)
+
+		// 2. reading external information
+		// remoteChart := &helmchart.Builder{
+		// 	ID:   d.Id(),
+		// 	Name: d.Get("name").(string),
+		// }
+		// // check s3 location
+		// _, errRead := cli.HeadObject(&s3.HeadObjectInput{
+		// 	Bucket: aws.String(d.Get("aws_bucket").(string)),
+		// 	Key:    aws.String(remoteChart.GetZipName()),
+		// })
+		// if errRead != nil {
+		// 	// no error, but nothing is present on s3, need regeneration
+		// 	return nil
+		// }
 	}
 	return nil
 }
@@ -137,44 +152,47 @@ func onHelmChartUpdate(d *schema.ResourceData, meta interface{}) error {
 
 	source := d.Get("source").(string)
 	args := d.Get("args").(map[string]interface{})
-	chart, err := helmchart.New(source, args)
+	localChart, err := helmchart.New(source, args, SafeStringList(d, "allowed"))
 	if err != nil {
 		return err
 	}
 
 	// upload it to S3, return its location
-	reader, errZip := chart.ZIP()
+	reader, errZip := localChart.ZIP()
 	if errZip != nil {
 		return errZip
 	}
 	if _, errUpload := cli.PutObject(&s3.PutObjectInput{
 		Body:        reader,
-		Bucket:      aws.String(d.Get("aws_bucket").(string)),
+		Bucket:      aws.String(SafeString(d, "aws_bucket")),
 		ContentType: aws.String("application/zip"),
-		Key:         aws.String(chart.GetZipName()),
+		Key:         aws.String(localChart.GetZipName()),
 		Metadata: map[string]*string{
-			HashMetaHeader: aws.String(chart.Hash),
+			HashMetaHeader: aws.String(localChart.Hash),
 		},
 	}); errUpload != nil {
 		return errUpload
 	}
 
-	d.Set("hash", chart.Hash)
-	d.Set("name", chart.Name)
-	d.Set("archive", chart.GetZipName())
+	d.Set("hash", localChart.Hash)
+	d.Set("name", localChart.Name)
+	d.Set("archive", localChart.GetZipName())
 	return nil
 }
 
 func onHelmChartDelete(d *schema.ResourceData, meta interface{}) error {
 	// remove file from AWS s3 bucket
-	if d.Get("id") != nil && d.Get("name") != nil {
-		chart := &helmchart.Builder{ID: d.Get("id").(string), Name: d.Get("name").(string)}
+	if d.Get("name") != nil {
+		remoteChart := &helmchart.Builder{
+			ID:   d.Id(),
+			Name: SafeString(d, "name"),
+		}
 		session := meta.(*providerConfig).Session
 		if _, errDelete := s3.New(session).DeleteObject(&s3.DeleteObjectInput{
-			Bucket: aws.String(d.Get("aws_bucket").(string)),
-			Key:    aws.String(chart.GetZipName()),
+			Bucket: aws.String(SafeString(d, "aws_bucket")),
+			Key:    aws.String(remoteChart.GetZipName()),
 		}); errDelete != nil {
-			log.WithError(errDelete).Warn("removal failed")
+			log.Printf("[WARN] removal failed %v", errDelete)
 		}
 	}
 	return nil

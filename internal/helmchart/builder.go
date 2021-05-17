@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/AtlantPlatform/terraform-provider-cicd/internal/dirhash"
 	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
-	"golang.org/x/mod/sumdb/dirhash"
 	"gopkg.in/yaml.v2"
 )
 
@@ -37,10 +37,13 @@ type Builder struct {
 	yamlChart   string
 	yamlValues  string
 	txtOverride string
+	txtAllowed  string
 }
 
-func New(source string, args map[string]interface{}) (*Builder, error) {
-	if _, err := os.Stat(source + "/values.yaml"); os.IsNotExist(err) {
+func New(source string, args map[string]interface{}, allowed []string) (*Builder, error) {
+	if _, err := os.Stat(source); err != nil {
+		return nil, fmt.Errorf("%s path error", err)
+	} else if _, err := os.Stat(source + "/values.yaml"); os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s/values.yaml file not found", source)
 	} else if _, err := os.Stat(source + "/Chart.yaml"); os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s/Chart.yaml file not found", source)
@@ -68,7 +71,7 @@ func New(source string, args map[string]interface{}) (*Builder, error) {
 	arrOverride := make([]string, 0)
 	if args != nil {
 		for k, v := range args {
-			arrOverride = append(arrOverride, fmt.Sprintf("--set '%s'='%s'", k, v))
+			arrOverride = append(arrOverride, fmt.Sprintf("--set %s='%s'", k, v))
 		}
 	}
 	hash, err := dirhash.HashDir(source, "", dirhash.Hash1)
@@ -84,6 +87,7 @@ func New(source string, args map[string]interface{}) (*Builder, error) {
 		yamlChart:   string(yamlChartFile),
 		yamlValues:  string(yamlValuesFile),
 		txtOverride: strings.Join(arrOverride, " "),
+		txtAllowed:  strings.Join(allowed, "\n"),
 	}, nil
 }
 
@@ -116,6 +120,7 @@ func (s *Builder) ZIP() (io.ReadSeeker, error) {
 	var files = []zipFile{
 		{"values.yaml", s.yamlValues},
 		{"override.txt", s.txtOverride},
+		{"allowed.txt", s.txtAllowed},
 		{"Chart.yaml", s.yamlChart},
 	}
 	// read files under templates/ folder

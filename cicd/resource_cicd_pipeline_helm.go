@@ -11,9 +11,10 @@ import (
 	"io/ioutil"
 	"net/http"
 
+	"log"
+
 	"github.com/AtlantPlatform/terraform-provider-cicd/internal/helpers"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	log "github.com/sirupsen/logrus"
 )
 
 func resourcePipelineHelm() *schema.Resource {
@@ -75,10 +76,12 @@ func resourcePipelineHelm() *schema.Resource {
 				Description: "Number of approvals required for the pipeline to be finished",
 			},
 			"approvers": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Default:     "",
-				Description: "Comma-separated list of approvers",
+				Type:     schema.TypeList,
+				Optional: true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+				Description: "list of approvers",
 			},
 			"secret": {
 				Type:        schema.TypeString,
@@ -94,7 +97,6 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 	payload := PipelineHelmCreate{
 		ID:               helpers.NewRandSeq(32),
 		Origin:           SafeString(d, "origin"),
-		Branches:         make([]string, 0),
 		RegistryURL:      SafeString(d, "registry_url"),
 		RegistryProvider: SafeString(d, "registry_provider"),
 		// helm-specific
@@ -103,20 +105,11 @@ func onPipelineHelmCreate(d *schema.ResourceData, meta interface{}) error {
 		Release:           SafeString(d, "release"),
 		Namespace:         SafeString(d, "namespace"),
 		ApprovalsRequired: SafeNum(d, "approvals_required"),
-	}
-	if d.Get("approvers") != nil {
-		fmt.Printf("approvers=%v\n", d.Get("approvers"))
-		for _, v := range d.Get("approvers").([]interface{}) {
-			payload.Approvers = append(payload.Approvers, v.(string))
-		}
-	}
-	if d.Get("branches") != nil {
-		fmt.Printf("branches=%v\n", d.Get("branches"))
-		for _, v := range d.Get("branches").([]interface{}) {
-			payload.Branches = append(payload.Branches, v.(string))
-		}
+		Approvers:         SafeStringList(d, "approvers"),
+		Branches:          SafeStringList(d, "branches"),
 	}
 	body, _ := json.Marshal(&payload)
+	log.Printf("onPipelineHelmCreate activate %v", string(body))
 	resp, err := http.Post(apiRoot+"/api/pipelines/activate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("activation error: %v", err.Error())
@@ -160,7 +153,6 @@ func onPipelineHelmUpdate(d *schema.ResourceData, meta interface{}) error {
 		ID:               d.Id(),
 		Secret:           SafeString(d, "secret"),
 		Origin:           SafeString(d, "origin"),
-		Branches:         make([]string, 0),
 		RegistryURL:      SafeString(d, "registry_url"),
 		RegistryProvider: SafeString(d, "registry_provider"),
 		// helm-specific
@@ -169,20 +161,12 @@ func onPipelineHelmUpdate(d *schema.ResourceData, meta interface{}) error {
 		Release:           SafeString(d, "release"),
 		Namespace:         SafeString(d, "namespace"),
 		ApprovalsRequired: SafeNum(d, "approvals_required"),
+		Approvers:         SafeStringList(d, "approvers"),
+		Branches:          SafeStringList(d, "branches"),
 	}
-	if d.Get("approvers") != nil {
-		fmt.Printf("approvers=%v\n", d.Get("approvers"))
-		for _, v := range d.Get("approvers").([]interface{}) {
-			payload.Approvers = append(payload.Approvers, v.(string))
-		}
-	}
-	if d.Get("branches") != nil {
-		fmt.Printf("branches=%v\n", d.Get("branches"))
-		for _, v := range d.Get("branches").([]interface{}) {
-			payload.Branches = append(payload.Branches, v.(string))
-		}
-	}
+
 	body, _ := json.Marshal(&payload)
+	log.Printf("onPipelineHelmCreate activate %v", string(body))
 	resp, err := http.Post(apiRoot+"/api/pipelines/activate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("activation error: %v", err.Error())
@@ -216,11 +200,11 @@ func onPipelineHelmDelete(d *schema.ResourceData, meta interface{}) error {
 	Secret := SafeString(d, "secret")
 	payload := PipelineRef{ID: d.Id(), Secret: Secret}
 
-	fmt.Println("onPipelineHelmDelete: ", payload)
+	log.Printf("onPipelineHelmDelete deactivate %v", payload)
 	body, _ := json.Marshal(&payload)
 	resp, err := http.Post(apiRoot+"/api/pipelines/deactivate", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		log.WithError(err).WithField("payload", payload).Warn("deactivation error (silenced)")
+		log.Printf("[ERROR] silenced: %v, payload %v", err, payload)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -229,12 +213,9 @@ func onPipelineHelmDelete(d *schema.ResourceData, meta interface{}) error {
 		return err
 	}
 	if resp.StatusCode >= 300 {
-		log.WithError(err).
-			WithField("payload", payload).
-			WithField("body", string(buf)).
-			WithField("status", resp.StatusCode).Warn("deactivation bad status code (silenced)")
+		log.Printf("[ERROR] silenced: status=%d, %v, payload %v", resp.StatusCode, string(buf), payload)
 		return nil
 	}
-	fmt.Println("onPipelineHelmDelete: done")
+	log.Println("onPipelineHelmDelete: done")
 	return nil
 }
